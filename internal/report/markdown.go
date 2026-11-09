@@ -37,7 +37,7 @@ func Markdown(w io.Writer, fs []*finding.Finding, st engine.Stats, redact bool) 
 	})
 
 	fmt.Fprintf(w, "# Secret findings\n\n")
-	fmt.Fprintf(w, "%d verified, %d likely. Scanned %d sources; %d raw matches were reduced to %d unique, %d of which were discarded.\n\n",
+	fmt.Fprintf(w, "%d verified, %d likely. Scanned %d sources: %d raw matches, %d unique credentials, %d discarded as noise or dead.\n\n",
 		st.Verified, st.Likely, st.Chunks, st.Candidates, st.Unique, st.Dropped)
 	if len(keep) == 0 {
 		fmt.Fprintln(w, "Nothing worth reporting was found.")
@@ -54,7 +54,11 @@ func Markdown(w io.Writer, fs []*finding.Finding, st engine.Stats, redact bool) 
 	}
 	for i, f := range keep {
 		fmt.Fprintf(w, "\n## %d. %s - %s (%s)\n\n", i+1, strings.ToUpper(f.Severity), f.Name, f.Status)
-		fmt.Fprintf(w, "- **Secret:** `%s`\n", f.Secret)
+		if len(f.Secret) > 120 || strings.Contains(f.Secret, "\n") {
+			fmt.Fprintf(w, "- **Secret:**\n\n```\n%s\n```\n\n", strings.ReplaceAll(f.Secret, `\n`, "\n"))
+		} else {
+			fmt.Fprintf(w, "- **Secret:** `%s`\n", f.Secret)
+		}
 		for _, k := range sortedKeys(f.Parts) {
 			if k == "private_key" {
 				continue

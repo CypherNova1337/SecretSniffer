@@ -20,6 +20,7 @@ import (
 	"github.com/CypherNova1337/SecretSniffer/internal/finding"
 	"github.com/CypherNova1337/SecretSniffer/internal/report"
 	"github.com/CypherNova1337/SecretSniffer/internal/source"
+	"github.com/CypherNova1337/SecretSniffer/internal/state"
 	"github.com/CypherNova1337/SecretSniffer/internal/verify"
 )
 
@@ -42,6 +43,7 @@ func main() {
 		jsonOut     = flag.Bool("json", false, "Print findings as JSON lines")
 		outFile     = flag.String("o", "", "Also write findings to this file as JSON lines")
 		mdFile      = flag.String("md", "", "Write a Markdown report of verified and likely findings, with evidence")
+		stateFile   = flag.String("state", "", "Remember findings in this file and only show new ones on later runs")
 		threads     = flag.Int("t", 20, "Concurrent fetches")
 		vthreads    = flag.Int("vt", 10, "Concurrent verifications")
 		rate        = flag.Int("rl", 0, "Max fetches per second (0 = unlimited)")
@@ -117,6 +119,20 @@ func main() {
 		defer file.Close()
 	}
 	pr := &report.Printer{W: os.Stdout, JSON: *jsonOut, Color: color, Redact: *redact}
+	var st *state.File
+	if *stateFile != "" {
+		var err error
+		if st, err = state.Load(*stateFile); err != nil {
+			fatal("state file %s: %v", *stateFile, err)
+		}
+	}
+	// emit prints a finding unless an earlier run already reported it.
+	emit := func(f *finding.Finding) {
+		if st != nil && !st.IsNew(f) {
+			return
+		}
+		pr.Print(f)
+	}
 	if file != nil {
 		pr.File = file
 	}
@@ -137,7 +153,7 @@ func main() {
 		Verifier:      verifier,
 		MinScore:      *minScore,
 		VerifyWorkers: *vthreads,
-		OnLive:        pr.Print,
+		OnLive:        emit,
 	})
 
 	chunks := make(chan engine.Chunk, 256)
@@ -203,34 +219,28 @@ func main() {
 		if f.Status == finding.Dropped && !*showDropped {
 			continue
 		}
-		pr.Print(f)
+		emit(f)
 	}
 	if *mdFile != "" {
 		mf, err := os.Create(*mdFile)
 		if err != nil {
 			warn("creating %s: %v", *mdFile, err)
 		} else {
-			all := append(append([]*finding.Finding(nil), pr.Printed...), rest...)
-			report.Markdown(mf, dedupe(all), stats, *redact)
+			report.Markdown(mf, pr.Printed, stats, *redact)
 			mf.Close()
+		}
+	}
+	if st != nil {
+		if err := st.Save(); err != nil {
+			warn("saving state: %v", err)
 		}
 	}
 	if !*quiet {
 		report.Summary(os.Stderr, stats, errColor)
-	}
-}
-
-// dedupe removes findings that appear twice (printed and in the remainder).
-func dedupe(fs []*finding.Finding) []*finding.Finding {
-	seen := map[*finding.Finding]bool{}
-	var out []*finding.Finding
-	for _, f := range fs {
-		if !seen[f] {
-			seen[f] = true
-			out = append(out, f)
+		if st != nil && st.Skipped() > 0 {
+			fmt.Fprintf(os.Stderr, "      %d already reported by an earlier run (hidden; see %s)\n", st.Skipped(), *stateFile)
 		}
 	}
-	return out
 }
 
 // classify sorts raw targets into URLs and local paths. Bare domains become
