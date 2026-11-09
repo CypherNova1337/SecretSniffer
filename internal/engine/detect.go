@@ -41,6 +41,14 @@ func Detect(ch Chunk) []*finding.Candidate {
 		loc := locate(ch, nl, v.at)
 		out = append(out, scanData(v.text, func(int) finding.Location { return loc }, v.how, testPath)...)
 	}
+	if ch.Loc.Archived != "" {
+		for _, c := range out {
+			if c.Drop == "" {
+				c.Score -= 10
+				c.Reasons = append(c.Reasons, "from an archived copy dated "+ch.Loc.Archived+" - may have been rotated since")
+			}
+		}
+	}
 	return preferSpecific(out)
 }
 

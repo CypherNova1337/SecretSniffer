@@ -48,6 +48,8 @@ func main() {
 		insecure    = flag.Bool("k", false, "Skip TLS verification when fetching targets")
 		thirdParty  = flag.Bool("third-party", false, "Also scan scripts from public CDNs and analytics vendors")
 		noMaps      = flag.Bool("no-maps", false, "Don't fetch or probe JavaScript source maps")
+		wayback     = flag.Bool("wayback", false, "Also scan archived JS, source maps and JSON from the Wayback Machine")
+		wbLimit     = flag.Int("wayback-limit", 500, "Most archived file versions to fetch per host")
 		depth       = flag.Int("depth", 2, "How many levels of script references to follow from a page")
 		maxSize     = flag.Int("max-size", 15, "Skip files and responses larger than this many MB")
 		redact      = flag.Bool("redact", false, "Mask secrets in output")
@@ -151,6 +153,22 @@ func main() {
 				NoMaps:      *noMaps,
 				MaxDepth:    *depth,
 				Logf:        logf,
+			}, chunks)
+		}()
+	}
+	if *wayback && len(urls) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			source.Wayback(ctx, source.HostsOf(urls), source.WaybackOptions{
+				Client:   fetchClient(*timeout*2, *proxy, *insecure),
+				Limit:    *wbLimit,
+				MaxBytes: maxBytes,
+				Logf: func(f string, a ...any) {
+					if !*quiet {
+						fmt.Fprintf(os.Stderr, "[*] "+f+"\n", a...)
+					}
+				},
 			}, chunks)
 		}()
 	}

@@ -16,6 +16,9 @@ type Location struct {
 	Author string `json:"author,omitempty"` // git only
 	Date   string `json:"date,omitempty"`   // git only
 	File   string `json:"file,omitempty"`   // git only: path inside the repo
+	// Archived is the capture date when the content came from the Wayback
+	// Machine rather than the live site.
+	Archived string `json:"archived,omitempty"`
 }
 
 func (l Location) String() string {
@@ -36,6 +39,9 @@ func (l Location) String() string {
 	if l.Line > 0 {
 		b.WriteString(":")
 		b.WriteString(strconv.Itoa(l.Line))
+	}
+	if l.Archived != "" {
+		b.WriteString(" (archived " + l.Archived + ")")
 	}
 	return b.String()
 }
