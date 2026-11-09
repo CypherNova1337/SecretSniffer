@@ -36,6 +36,7 @@ func main() {
 		gitRepos    multi
 		headers     multi
 		noVerify    = flag.Bool("no-verify", false, "Don't contact providers; score findings offline only")
+		noEnrich    = flag.Bool("no-enrich", false, "Only confirm keys are live; skip the read-only calls that map what they can access")
 		showDropped = flag.Bool("show-dropped", false, "Also print what was discarded and why")
 		minScore    = flag.Int("min-score", 50, "Lowest score an unverified finding needs to be shown")
 		jsonOut     = flag.Bool("json", false, "Print findings as JSON lines")
@@ -128,9 +129,11 @@ func main() {
 			version, len(urls), len(paths), len(gitRepos), mode)
 	}
 
+	verifier := verify.New(time.Duration(*timeout) * time.Second)
+	verifier.Enrich = !*noEnrich
 	eng := engine.New(engine.Options{
 		Verify:        !*noVerify,
-		Verifier:      verify.New(time.Duration(*timeout) * time.Second),
+		Verifier:      verifier,
 		MinScore:      *minScore,
 		VerifyWorkers: *vthreads,
 		OnLive:        pr.Print,

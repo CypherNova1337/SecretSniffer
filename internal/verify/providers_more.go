@@ -2,7 +2,10 @@ package verify
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 )
 
@@ -113,7 +116,7 @@ func verifyAzureAD(ctx context.Context, h *HTTP, t Target) Result {
 		return unknownErr(err)
 	}
 	if r.Status == 200 {
-		return Result{State: Live, Identity: "app " + client + " in tenant " + tenant}
+		return Result{State: Live, Identity: "app " + client + " in tenant " + tenant, raw: r}
 	}
 	desc := jsonPath(r.Body, "error_description")
 	for _, code := range []string{"AADSTS7000215", "AADSTS7000222", "AADSTS700016", "AADSTS90002", "AADSTS900023"} {
@@ -138,7 +141,17 @@ func verifyFirebaseDB(ctx context.Context, h *HTTP, t Target) Result {
 	body := strings.TrimSpace(string(r.Body))
 	switch {
 	case r.Status == 200 && body != "null":
-		return Result{State: Live, Identity: "readable by anyone - no authentication required"}
+		res := Result{State: Live, Identity: "readable by anyone - no authentication required"}
+		var top map[string]any
+		if json.Unmarshal(r.Body, &top) == nil && len(top) > 0 {
+			keys := make([]string, 0, len(top))
+			for k := range top {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			res.Access = append(res.Access, fmt.Sprintf("%d top-level nodes readable: %s", len(keys), listN(keys, 10)))
+		}
+		return res
 	case r.Status == 200:
 		return Result{State: Harmless, Note: "readable but empty"}
 	case r.Status == 401 || r.Status == 403:

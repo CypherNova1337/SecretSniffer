@@ -52,6 +52,10 @@ type Result struct {
 	Note     string // why, in a few words
 	Severity string // optional override
 	Boost    int    // score adjustment for Unknown results that still taught us something
+	// Access lists what a live credential can reach, from enrichment calls.
+	Access []string
+
+	raw *Response // the successful verification response, for enrichers
 }
 
 // Func verifies one kind of credential.
@@ -66,6 +70,10 @@ type Verifier struct {
 	cache       map[string]*cacheEntry
 	sems        map[string]chan struct{}
 	perProvider int
+
+	// Enrich runs extra read-only calls on live credentials to work out
+	// what they can reach.
+	Enrich bool
 }
 
 type cacheEntry struct {
@@ -128,6 +136,12 @@ func (v *Verifier) Verify(ctx context.Context, key string, t Target) Result {
 		time.Sleep(1500 * time.Millisecond)
 		res = fn(ctx, v.h, t)
 	}
+	if res.State == Live && v.Enrich {
+		if en, ok := enrichers[t.RuleID]; ok {
+			en(ctx, v.h, t, &res)
+		}
+	}
+	res.raw = nil
 	<-sem
 	e.res = res
 	close(e.done)
@@ -199,10 +213,14 @@ func shortErr(err error) string {
 func byStatus(r *Response, ok func(*Response) Result) Result {
 	switch {
 	case r.Status >= 200 && r.Status < 300:
+		res := Result{State: Live}
 		if ok != nil {
-			return ok(r)
+			res = ok(r)
 		}
-		return Result{State: Live}
+		if res.raw == nil {
+			res.raw = r
+		}
+		return res
 	case r.Status == 401:
 		return Result{State: Dead, Note: "provider rejected it (401)"}
 	case r.Status == 429:

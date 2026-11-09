@@ -137,6 +137,9 @@ func (p *Printer) printFull(f *finding.Finding) {
 		row(k, v)
 	}
 	row("identity", f.Identity)
+	for _, a := range f.Access {
+		row("access", a)
+	}
 	for _, k := range sortedKeys(f.Info) {
 		row(strings.ReplaceAll(k, "_", " "), f.Info[k])
 	}

@@ -110,6 +110,7 @@ type Finding struct {
 	Secret    string            `json:"secret"`
 	Parts     map[string]string `json:"parts,omitempty"`
 	Identity  string            `json:"identity,omitempty"` // who/what the key belongs to, per the provider
+	Access    []string          `json:"access,omitempty"`   // what a live key can reach, from enrichment
 	Reasons   []string          `json:"reasons,omitempty"`
 	Info      map[string]string `json:"info,omitempty"`
 	Drop      string            `json:"drop_reason,omitempty"`
