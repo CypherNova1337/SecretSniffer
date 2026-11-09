@@ -185,6 +185,8 @@ func (e *Engine) build(en *entry) *finding.Finding {
 	case en.result != nil && en.result.State == verify.Live:
 		f.Status, f.Score = finding.Verified, 100
 		f.Identity = en.result.Identity
+		f.Access = en.result.Access
+		f.Evidence = en.result.Evidence
 		if en.result.Note != "" {
 			f.Reasons = append(f.Reasons, en.result.Note)
 		}

@@ -157,7 +157,7 @@ func verifyAWS(ctx context.Context, h *HTTP, t Target) Result {
 		if m := arnRe.FindStringSubmatch(b); m != nil {
 			id = m[1]
 		}
-		return Result{State: Live, Identity: id}
+		return Result{State: Live, Identity: id, raw: r}
 	case strings.Contains(b, "InvalidClientTokenId"):
 		return Result{State: Dead, Note: "access key ID does not exist or was deleted"}
 	case strings.Contains(b, "SignatureDoesNotMatch"):
@@ -186,7 +186,7 @@ func verifyGCP(ctx context.Context, h *HTTP, t Target) Result {
 		return unknownErr(err)
 	}
 	if r.Status == 200 {
-		return Result{State: Live, Identity: email}
+		return Result{State: Live, Identity: email, raw: r}
 	}
 	if r.Status == 400 || r.Status == 401 {
 		desc := jsonPath(r.Body, "error_description")
@@ -294,10 +294,7 @@ func verifyGitHub(ctx context.Context, h *HTTP, t Target) Result {
 	switch {
 	case r.Status == 200:
 		id := "user " + jsonPath(r.Body, "login")
-		if s := r.Header.Get("X-OAuth-Scopes"); s != "" {
-			id += ", scopes: " + s
-		}
-		return Result{State: Live, Identity: id}
+		return Result{State: Live, Identity: id, raw: r}
 	case r.Status == 403 && r.Header.Get("X-RateLimit-Remaining") == "0":
 		return Result{State: Unknown, Note: "GitHub rate limit hit"}
 	case r.Status == 403:
@@ -376,7 +373,7 @@ func verifySlack(ctx context.Context, h *HTTP, t Target) Result {
 		return unknownErr(err)
 	}
 	if jsonPath(r.Body, "ok") == "true" {
-		return Result{State: Live, Identity: jsonPath(r.Body, "user") + " @ " + jsonPath(r.Body, "team")}
+		return Result{State: Live, Identity: jsonPath(r.Body, "user") + " @ " + jsonPath(r.Body, "team"), raw: r}
 	}
 	switch e := jsonPath(r.Body, "error"); e {
 	case "invalid_auth", "token_revoked", "account_inactive", "not_authed", "token_expired", "invalid_token":

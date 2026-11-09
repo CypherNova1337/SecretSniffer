@@ -177,6 +177,13 @@ func (w *web) process(ctx context.Context, t webTask) {
 	if err != nil {
 		return
 	}
+	// Lazy chunks named in manifests and runtime maps are part of the same
+	// app, so following them doesn't use up crawl depth.
+	for _, ref := range chunkRefs(body, base) {
+		if u, err := url.Parse(ref); err == nil && sameSite(u.Host, base.Host) {
+			w.follow(ctx, base, ref, t.depth, "js")
+		}
+	}
 	if isHTML {
 		for _, m := range scriptSrc.FindAllSubmatch(body, -1) {
 			w.follow(ctx, base, string(m[1]), t.depth+1, "js")

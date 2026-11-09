@@ -20,10 +20,11 @@ import (
 	"github.com/CypherNova1337/SecretSniffer/internal/finding"
 	"github.com/CypherNova1337/SecretSniffer/internal/report"
 	"github.com/CypherNova1337/SecretSniffer/internal/source"
+	"github.com/CypherNova1337/SecretSniffer/internal/state"
 	"github.com/CypherNova1337/SecretSniffer/internal/verify"
 )
 
-const version = "1.0.0"
+const version = "1.1.0"
 
 type multi []string
 
@@ -36,10 +37,13 @@ func main() {
 		gitRepos    multi
 		headers     multi
 		noVerify    = flag.Bool("no-verify", false, "Don't contact providers; score findings offline only")
+		noEnrich    = flag.Bool("no-enrich", false, "Only confirm keys are live; skip the read-only calls that map what they can access")
 		showDropped = flag.Bool("show-dropped", false, "Also print what was discarded and why")
 		minScore    = flag.Int("min-score", 50, "Lowest score an unverified finding needs to be shown")
 		jsonOut     = flag.Bool("json", false, "Print findings as JSON lines")
 		outFile     = flag.String("o", "", "Also write findings to this file as JSON lines")
+		mdFile      = flag.String("md", "", "Write a Markdown report of verified and likely findings, with evidence")
+		stateFile   = flag.String("state", "", "Remember findings in this file and only show new ones on later runs")
 		threads     = flag.Int("t", 20, "Concurrent fetches")
 		vthreads    = flag.Int("vt", 10, "Concurrent verifications")
 		rate        = flag.Int("rl", 0, "Max fetches per second (0 = unlimited)")
@@ -48,6 +52,8 @@ func main() {
 		insecure    = flag.Bool("k", false, "Skip TLS verification when fetching targets")
 		thirdParty  = flag.Bool("third-party", false, "Also scan scripts from public CDNs and analytics vendors")
 		noMaps      = flag.Bool("no-maps", false, "Don't fetch or probe JavaScript source maps")
+		wayback     = flag.Bool("wayback", false, "Also scan archived JS, source maps and JSON from the Wayback Machine")
+		wbLimit     = flag.Int("wayback-limit", 500, "Most archived file versions to fetch per host")
 		depth       = flag.Int("depth", 2, "How many levels of script references to follow from a page")
 		maxSize     = flag.Int("max-size", 15, "Skip files and responses larger than this many MB")
 		redact      = flag.Bool("redact", false, "Mask secrets in output")
@@ -113,6 +119,20 @@ func main() {
 		defer file.Close()
 	}
 	pr := &report.Printer{W: os.Stdout, JSON: *jsonOut, Color: color, Redact: *redact}
+	var st *state.File
+	if *stateFile != "" {
+		var err error
+		if st, err = state.Load(*stateFile); err != nil {
+			fatal("state file %s: %v", *stateFile, err)
+		}
+	}
+	// emit prints a finding unless an earlier run already reported it.
+	emit := func(f *finding.Finding) {
+		if st != nil && !st.IsNew(f) {
+			return
+		}
+		pr.Print(f)
+	}
 	if file != nil {
 		pr.File = file
 	}
@@ -126,12 +146,14 @@ func main() {
 			version, len(urls), len(paths), len(gitRepos), mode)
 	}
 
+	verifier := verify.New(time.Duration(*timeout) * time.Second)
+	verifier.Enrich = !*noEnrich
 	eng := engine.New(engine.Options{
 		Verify:        !*noVerify,
-		Verifier:      verify.New(time.Duration(*timeout) * time.Second),
+		Verifier:      verifier,
 		MinScore:      *minScore,
 		VerifyWorkers: *vthreads,
-		OnLive:        pr.Print,
+		OnLive:        emit,
 	})
 
 	chunks := make(chan engine.Chunk, 256)
@@ -151,6 +173,22 @@ func main() {
 				NoMaps:      *noMaps,
 				MaxDepth:    *depth,
 				Logf:        logf,
+			}, chunks)
+		}()
+	}
+	if *wayback && len(urls) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			source.Wayback(ctx, source.HostsOf(urls), source.WaybackOptions{
+				Client:   fetchClient(*timeout*2, *proxy, *insecure),
+				Limit:    *wbLimit,
+				MaxBytes: maxBytes,
+				Logf: func(f string, a ...any) {
+					if !*quiet {
+						fmt.Fprintf(os.Stderr, "[*] "+f+"\n", a...)
+					}
+				},
 			}, chunks)
 		}()
 	}
@@ -181,10 +219,27 @@ func main() {
 		if f.Status == finding.Dropped && !*showDropped {
 			continue
 		}
-		pr.Print(f)
+		emit(f)
+	}
+	if *mdFile != "" {
+		mf, err := os.Create(*mdFile)
+		if err != nil {
+			warn("creating %s: %v", *mdFile, err)
+		} else {
+			report.Markdown(mf, pr.Printed, stats, *redact)
+			mf.Close()
+		}
+	}
+	if st != nil {
+		if err := st.Save(); err != nil {
+			warn("saving state: %v", err)
+		}
 	}
 	if !*quiet {
 		report.Summary(os.Stderr, stats, errColor)
+		if st != nil && st.Skipped() > 0 {
+			fmt.Fprintf(os.Stderr, "      %d already reported by an earlier run (hidden; see %s)\n", st.Skipped(), *stateFile)
+		}
 	}
 }
 

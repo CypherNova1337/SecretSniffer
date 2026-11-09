@@ -16,6 +16,9 @@ type Location struct {
 	Author string `json:"author,omitempty"` // git only
 	Date   string `json:"date,omitempty"`   // git only
 	File   string `json:"file,omitempty"`   // git only: path inside the repo
+	// Archived is the capture date when the content came from the Wayback
+	// Machine rather than the live site.
+	Archived string `json:"archived,omitempty"`
 }
 
 func (l Location) String() string {
@@ -36,6 +39,9 @@ func (l Location) String() string {
 	if l.Line > 0 {
 		b.WriteString(":")
 		b.WriteString(strconv.Itoa(l.Line))
+	}
+	if l.Archived != "" {
+		b.WriteString(" (archived " + l.Archived + ")")
 	}
 	return b.String()
 }
@@ -104,9 +110,21 @@ type Finding struct {
 	Secret    string            `json:"secret"`
 	Parts     map[string]string `json:"parts,omitempty"`
 	Identity  string            `json:"identity,omitempty"` // who/what the key belongs to, per the provider
+	Access    []string          `json:"access,omitempty"`   // what a live key can reach, from enrichment
+	Evidence  *Evidence         `json:"evidence,omitempty"` // how to reproduce the verification
 	Reasons   []string          `json:"reasons,omitempty"`
 	Info      map[string]string `json:"info,omitempty"`
 	Drop      string            `json:"drop_reason,omitempty"`
 	Context   string            `json:"context,omitempty"`
 	Locations []Location        `json:"locations"`
+}
+
+// Evidence is what a triager needs to confirm a finding without trusting the
+// tool: a command that reproduces the check and what the provider answered.
+type Evidence struct {
+	Command  string `json:"command"`
+	Request  string `json:"request,omitempty"`
+	Status   int    `json:"status,omitempty"`
+	Response string `json:"response,omitempty"`
+	Time     string `json:"time"`
 }
