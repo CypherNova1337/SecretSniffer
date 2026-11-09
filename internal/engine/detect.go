@@ -23,13 +23,10 @@ var exampleWords = [][]byte{[]byte("example"), []byte("sample"), []byte("dummy")
 
 // Detect runs every rule over a chunk and returns scored candidates. Dropped
 // candidates are returned too, with Drop set, so the caller can account for
-// them.
+// them. Besides the raw content it scans decoded views of it: base64 and hex
+// blobs, escaped strings, char-code arrays and concatenated string pieces.
 func Detect(ch Chunk) []*finding.Candidate {
-	data := ch.Data
-	lower := bytes.ToLower(data)
-	nl := newlineIndex(data)
-	var out []*finding.Candidate
-
+	nl := newlineIndex(ch.Data)
 	testPath := false
 	if ch.Local {
 		p := ch.Loc.Source
@@ -39,6 +36,17 @@ func Detect(ch Chunk) []*finding.Candidate {
 		testPath = rules.TestPath(p)
 	}
 
+	out := scanData(ch.Data, func(off int) finding.Location { return locate(ch, nl, off) }, "", testPath)
+	for _, v := range decodedViews(ch.Data) {
+		loc := locate(ch, nl, v.at)
+		out = append(out, scanData(v.text, func(int) finding.Location { return loc }, v.how, testPath)...)
+	}
+	return preferSpecific(out)
+}
+
+func scanData(data []byte, loc func(int) finding.Location, how string, testPath bool) []*finding.Candidate {
+	lower := bytes.ToLower(data)
+	var out []*finding.Candidate
 	for _, r := range rules.All() {
 		if !hasAny(lower, r.Keywords) {
 			continue
@@ -61,7 +69,7 @@ func Detect(ch Chunk) []*finding.Candidate {
 				RuleID: r.ID,
 				Secret: string(data[gs:ge]),
 				Groups: groups,
-				Loc:    locate(ch, nl, gs),
+				Loc:    loc(gs),
 				Score:  r.Base,
 			}
 			base.Context = snippet(data, gs, ge)
@@ -73,6 +81,13 @@ func Detect(ch Chunk) []*finding.Candidate {
 					r.Check(c)
 				}
 				if c.Drop == "" {
+					if how != "" {
+						if c.Info == nil {
+							c.Info = map[string]string{}
+						}
+						c.Info["hidden_by"] = how
+						c.Reasons = append(c.Reasons, "hidden by "+how+" - deliberately obscured")
+					}
 					if testPath {
 						c.Score -= 20
 						c.Reasons = append(c.Reasons, "found in a test/example path")
@@ -86,7 +101,7 @@ func Detect(ch Chunk) []*finding.Candidate {
 			}
 		}
 	}
-	return preferSpecific(out)
+	return out
 }
 
 // preFilter applies the checks every rule shares.
