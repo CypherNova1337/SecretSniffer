@@ -54,6 +54,8 @@ type Result struct {
 	Boost    int    // score adjustment for Unknown results that still taught us something
 	// Access lists what a live credential can reach, from enrichment calls.
 	Access []string
+	// Evidence lets someone else reproduce the verification.
+	Evidence *Evidence
 
 	raw *Response // the successful verification response, for enrichers
 }
@@ -130,15 +132,22 @@ func (v *Verifier) Verify(ctx context.Context, key string, t Target) Result {
 	v.mu.Unlock()
 
 	sem <- struct{}{}
-	res := fn(ctx, v.h, t)
+	hc := *v.h
+	var rec []exchange
+	hc.rec = &rec
+	res := fn(ctx, &hc, t)
 	// One retry for transient failures before settling on unknown.
 	if res.State == Unknown && ctx.Err() == nil {
 		time.Sleep(1500 * time.Millisecond)
-		res = fn(ctx, v.h, t)
+		rec = rec[:0]
+		res = fn(ctx, &hc, t)
 	}
-	if res.State == Live && v.Enrich {
-		if en, ok := enrichers[t.RuleID]; ok {
-			en(ctx, v.h, t, &res)
+	if res.State == Live {
+		res.Evidence = buildEvidence(t, rec)
+		if v.Enrich {
+			if en, ok := enrichers[t.RuleID]; ok {
+				en(ctx, &hc, t, &res)
+			}
 		}
 	}
 	res.raw = nil
@@ -153,6 +162,18 @@ type HTTP struct {
 	Client *http.Client
 	// Rewrite, if set, maps every outgoing URL (used by tests).
 	Rewrite func(string) string
+
+	rec *[]exchange // per-verification log of requests, for evidence
+}
+
+// exchange is one request/response pair, kept to build evidence.
+type exchange struct {
+	method, url string
+	headers     map[string]string
+	body        string
+	status      int
+	resp        []byte
+	at          time.Time
 }
 
 // Response is a small, fully read HTTP response.
@@ -164,6 +185,7 @@ type Response struct {
 
 // Do sends one request and reads up to 1 MiB of the response.
 func (h *HTTP) Do(ctx context.Context, method, url string, hdr map[string]string, body string) (*Response, error) {
+	orig := url
 	if h.Rewrite != nil {
 		url = h.Rewrite(url)
 	}
@@ -186,6 +208,10 @@ func (h *HTTP) Do(ctx context.Context, method, url string, hdr map[string]string
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if h.rec != nil {
+		*h.rec = append(*h.rec, exchange{method: method, url: orig, headers: hdr, body: body,
+			status: resp.StatusCode, resp: b, at: time.Now().UTC()})
+	}
 	return &Response{Status: resp.StatusCode, Header: resp.Header, Body: b}, nil
 }
 

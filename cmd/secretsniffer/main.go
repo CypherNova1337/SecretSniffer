@@ -41,6 +41,7 @@ func main() {
 		minScore    = flag.Int("min-score", 50, "Lowest score an unverified finding needs to be shown")
 		jsonOut     = flag.Bool("json", false, "Print findings as JSON lines")
 		outFile     = flag.String("o", "", "Also write findings to this file as JSON lines")
+		mdFile      = flag.String("md", "", "Write a Markdown report of verified and likely findings, with evidence")
 		threads     = flag.Int("t", 20, "Concurrent fetches")
 		vthreads    = flag.Int("vt", 10, "Concurrent verifications")
 		rate        = flag.Int("rl", 0, "Max fetches per second (0 = unlimited)")
@@ -204,9 +205,32 @@ func main() {
 		}
 		pr.Print(f)
 	}
+	if *mdFile != "" {
+		mf, err := os.Create(*mdFile)
+		if err != nil {
+			warn("creating %s: %v", *mdFile, err)
+		} else {
+			all := append(append([]*finding.Finding(nil), pr.Printed...), rest...)
+			report.Markdown(mf, dedupe(all), stats, *redact)
+			mf.Close()
+		}
+	}
 	if !*quiet {
 		report.Summary(os.Stderr, stats, errColor)
 	}
+}
+
+// dedupe removes findings that appear twice (printed and in the remainder).
+func dedupe(fs []*finding.Finding) []*finding.Finding {
+	seen := map[*finding.Finding]bool{}
+	var out []*finding.Finding
+	for _, f := range fs {
+		if !seen[f] {
+			seen[f] = true
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // classify sorts raw targets into URLs and local paths. Bare domains become

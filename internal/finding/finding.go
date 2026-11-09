@@ -111,9 +111,20 @@ type Finding struct {
 	Parts     map[string]string `json:"parts,omitempty"`
 	Identity  string            `json:"identity,omitempty"` // who/what the key belongs to, per the provider
 	Access    []string          `json:"access,omitempty"`   // what a live key can reach, from enrichment
+	Evidence  *Evidence         `json:"evidence,omitempty"` // how to reproduce the verification
 	Reasons   []string          `json:"reasons,omitempty"`
 	Info      map[string]string `json:"info,omitempty"`
 	Drop      string            `json:"drop_reason,omitempty"`
 	Context   string            `json:"context,omitempty"`
 	Locations []Location        `json:"locations"`
+}
+
+// Evidence is what a triager needs to confirm a finding without trusting the
+// tool: a command that reproduces the check and what the provider answered.
+type Evidence struct {
+	Command  string `json:"command"`
+	Request  string `json:"request,omitempty"`
+	Status   int    `json:"status,omitempty"`
+	Response string `json:"response,omitempty"`
+	Time     string `json:"time"`
 }

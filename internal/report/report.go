@@ -22,6 +22,9 @@ type Printer struct {
 	Redact bool
 	File   io.Writer // optional: JSON lines copy of everything printed
 	mu     sync.Mutex
+
+	// Printed keeps every finding printed, for the Markdown report.
+	Printed []*finding.Finding
 }
 
 const (
@@ -60,6 +63,7 @@ func (p *Printer) secret(s string) string {
 func (p *Printer) Print(f *finding.Finding) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.Printed = append(p.Printed, f)
 	if p.File != nil {
 		writeJSON(p.File, f, p.Redact)
 	}
@@ -77,19 +81,44 @@ func (p *Printer) Print(f *finding.Finding) {
 
 func writeJSON(w io.Writer, f *finding.Finding, redact bool) {
 	if redact {
-		cp := *f
-		cp.Secret = Redacted(f.Secret)
-		cp.Context = ""
-		if f.Parts != nil {
-			cp.Parts = map[string]string{}
-			for k, v := range f.Parts {
-				cp.Parts[k] = Redacted(v)
-			}
-		}
-		f = &cp
+		f = redactFinding(f)
 	}
 	b, _ := json.Marshal(f)
 	fmt.Fprintln(w, string(b))
+}
+
+// redactAll masks the secret and its companion values wherever they appear
+// in s (evidence commands, responses).
+func redactAll(f *finding.Finding, s string) string {
+	vals := []string{f.Secret}
+	for _, v := range f.Parts {
+		vals = append(vals, v)
+	}
+	for _, v := range vals {
+		if len(v) >= 8 {
+			s = strings.ReplaceAll(s, v, Redacted(v))
+		}
+	}
+	return s
+}
+
+func redactFinding(f *finding.Finding) *finding.Finding {
+	cp := *f
+	cp.Secret = Redacted(f.Secret)
+	cp.Context = ""
+	if f.Parts != nil {
+		cp.Parts = map[string]string{}
+		for k, v := range f.Parts {
+			cp.Parts[k] = Redacted(v)
+		}
+	}
+	if f.Evidence != nil {
+		ev := *f.Evidence
+		ev.Command = redactAll(f, ev.Command)
+		ev.Response = redactAll(f, ev.Response)
+		cp.Evidence = &ev
+	}
+	return &cp
 }
 
 func (p *Printer) sevColor(sev string) string {
@@ -139,6 +168,20 @@ func (p *Printer) printFull(f *finding.Finding) {
 	row("identity", f.Identity)
 	for _, a := range f.Access {
 		row("access", a)
+	}
+	if ev := f.Evidence; ev != nil {
+		cmd := ev.Command
+		if p.Redact {
+			cmd = redactAll(f, cmd)
+		}
+		row("repro", strings.ReplaceAll(cmd, "\n", "\n            "))
+		if ev.Status != 0 {
+			resp := ev.Response
+			if p.Redact {
+				resp = redactAll(f, resp)
+			}
+			row("proof", fmt.Sprintf("HTTP %d at %s: %s", ev.Status, ev.Time, trunc(resp, 140)))
+		}
 	}
 	for _, k := range sortedKeys(f.Info) {
 		row(strings.ReplaceAll(k, "_", " "), f.Info[k])
