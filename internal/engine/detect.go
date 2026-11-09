@@ -100,6 +100,10 @@ func scanData(data []byte, loc func(int) finding.Location, how string, testPath 
 						c.Score -= 20
 						c.Reasons = append(c.Reasons, "found in a test/example path")
 					}
+					if r.Generic && inComment(data, gs) {
+						c.Score -= 20
+						c.Reasons = append(c.Reasons, "inside a code comment or doc block")
+					}
 					if nearExampleWords(lower, gs) {
 						c.Score -= 15
 						c.Reasons = append(c.Reasons, "surrounded by example/placeholder wording")
@@ -349,4 +353,17 @@ func snippet(data []byte, s, e int) string {
 		return r
 	}, string(data[lo:hi]))
 	return strings.ToValidUTF8(strings.TrimSpace(out), "?")
+}
+
+// inComment reports whether the line holding offset at is a comment or doc
+// block line (// ..., # ..., * ..., /* ..., <!-- ...).
+func inComment(data []byte, at int) bool {
+	start := bytes.LastIndexByte(data[:at], '\n') + 1
+	line := bytes.TrimLeft(data[start:at], " \t")
+	for _, p := range [][]byte{[]byte("//"), []byte("#"), []byte("*"), []byte("/*"), []byte("<!--"), []byte("--")} {
+		if bytes.HasPrefix(line, p) {
+			return true
+		}
+	}
+	return false
 }

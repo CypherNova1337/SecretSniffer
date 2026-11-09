@@ -73,3 +73,12 @@ func TestDecodingDoesNotInventNoise(t *testing.T) {
 		}
 	}
 }
+
+func TestDocCommentPenalty(t *testing.T) {
+	v := Rand(Alnum, 40)
+	code := Detect(Chunk{Loc: finding.Location{Source: "a.js"}, Data: []byte(`apiKey = "` + v + `"`)})
+	doc := Detect(Chunk{Loc: finding.Location{Source: "a.js"}, Data: []byte(" * apiKey = \"" + v + "\"")})
+	if len(code) == 0 || len(doc) == 0 || doc[0].Score >= code[0].Score {
+		t.Fatalf("doc comment should score lower: code=%v doc=%v", code, doc)
+	}
+}

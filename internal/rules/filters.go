@@ -53,6 +53,12 @@ var knownExamples = map[string]bool{
 	"pk_test_TYooMQauvdEDq54NiTphI7jx":         true,
 	"sk_test_BQokikJOvBiI2HlWgH4olfQ2":         true,
 	"xoxb-not-a-real-token-this-will-not-work": true,
+	// RFC 6749 / 6750 example values, copied into countless OAuth libraries.
+	"2YotnFZFEjr1zCsicMWpAA":                   true,
+	"tGzv3JOkF0XG5Qx2TlKWIA":                   true,
+	"7Fjfp0ZBr1KtDRbnfVdmIw":                   true,
+	"SplxlOBeZQQYbYS6WxSbIA":                   true,
+	"mF_9.B5f-4.1JqM":                          true,
 	"ghp_16C7e42F292c6912E7710c838347Ae178B4a": true,
 }
 
@@ -185,7 +191,66 @@ var (
 	uuidRe       = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 	hashPrefixRe = regexp.MustCompile(`^(sha(1|256|384|512)-|md5-)`)
 	pathLikeRe   = regexp.MustCompile(`^(\.{0,2}/|https?://|[a-zA-Z]:\\)|\.(js|css|png|jpe?g|svg|gif|html?|json|map|woff2?)$`)
-	wordsOnlyRe  = regexp.MustCompile(`^[A-Za-z]+([ _-][A-Za-z]+)*$`)
+	wordsOnlyRe  = regexp.MustCompile(`^[A-Za-z]+([ _-]+[A-Za-z]+)*$`)
+	wordPunctRe  = regexp.MustCompile(`^[A-Za-z]+[!?.,;:]+$`)
+	identSplitRe = regexp.MustCompile(`[_\-.]+`)
+	keyCharsRe   = regexp.MustCompile(`[A-Za-z0-9._~+/=\-]`)
+	// No "+=": real base64 keys can end in "+=" padding.
+	codeTokenRe  = regexp.MustCompile(`=>|\$\{|[A-Za-z_$]\w*\(|\)\s*[,;.+]|[;{}]`)
 	propPathRe   = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*(\[[^\]]*\])?(\.[A-Za-z_$][A-Za-z0-9_$]*(\[[^\]]*\])?)+$`)
 	camelIdentRe = regexp.MustCompile(`^[a-z]+([A-Z][a-z]+)+$`)
 )
+
+// IdentifierChain reports whether v is a chain of words joined by - _ or .,
+// the shape of CSS-module and BEM class names
+// ("forgot-password-module__forgotPasswordForm___x3k9"). The last segment
+// may be a short build hash.
+func IdentifierChain(v string) bool {
+	parts := identSplitRe.Split(v, -1)
+	if len(parts) < 2 {
+		return false
+	}
+	words := 0
+	for i, p := range parts {
+		if p == "" {
+			return false
+		}
+		letters := strings.Trim(p, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") == ""
+		switch {
+		case letters:
+			if len(p) >= 3 {
+				words++
+			}
+		case i == len(parts)-1 && len(p) <= 8:
+			// trailing hash segment
+		default:
+			return false
+		}
+	}
+	return words >= 2
+}
+
+// LooksLikeCode reports whether v is a fragment of source code that a
+// pattern happened to capture.
+func LooksLikeCode(v string) bool {
+	return codeTokenRe.MatchString(v)
+}
+
+// KeyCharRatio is the share of v made of characters generated keys use.
+func KeyCharRatio(v string) float64 {
+	if v == "" {
+		return 0
+	}
+	return float64(len(keyCharsRe.FindAllStringIndex(v, -1))) / float64(len(v))
+}
+
+// PrintableASCII reports whether v is plain visible ASCII. Generated secrets
+// always are; display strings in other scripts never are.
+func PrintableASCII(v string) bool {
+	for i := 0; i < len(v); i++ {
+		if v[i] < 0x21 || v[i] > 0x7e {
+			return false
+		}
+	}
+	return true
+}
