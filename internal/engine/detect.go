@@ -36,10 +36,14 @@ func Detect(ch Chunk) []*finding.Candidate {
 		testPath = rules.TestPath(p)
 	}
 
-	out := scanData(ch.Data, func(off int) finding.Location { return locate(ch, nl, off) }, "", testPath)
+	origin := originOf(ch.Loc)
+	rawCtx := func(s, e int, name string) *apiCtx { return apiContext(ch.Data, s, e, name, origin) }
+	out := scanData(ch.Data, func(off int) finding.Location { return locate(ch, nl, off) }, "", testPath, rawCtx)
 	for _, v := range decodedViews(ch.Data) {
 		loc := locate(ch, nl, v.at)
-		out = append(out, scanData(v.text, func(int) finding.Location { return loc }, v.how, testPath)...)
+		at := v.at
+		viewCtx := func(_, _ int, name string) *apiCtx { return apiContext(ch.Data, at, at, name, origin) }
+		out = append(out, scanData(v.text, func(int) finding.Location { return loc }, v.how, testPath, viewCtx)...)
 	}
 	if ch.Loc.Archived != "" {
 		for _, c := range out {
@@ -52,7 +56,11 @@ func Detect(ch Chunk) []*finding.Candidate {
 	return preferSpecific(out)
 }
 
-func scanData(data []byte, loc func(int) finding.Location, how string, testPath bool) []*finding.Candidate {
+// contextual rules are keys for the site's own APIs; their API context is
+// recorded so the probe can test them.
+var contextual = map[string]bool{"generic-secret": true, "basic-auth-header": true}
+
+func scanData(data []byte, loc func(int) finding.Location, how string, testPath bool, apiCtxFn func(s, e int, name string) *apiCtx) []*finding.Candidate {
 	lower := bytes.ToLower(data)
 	var out []*finding.Candidate
 	for _, r := range rules.All() {
@@ -87,6 +95,13 @@ func scanData(data []byte, loc func(int) finding.Location, how string, testPath 
 			for _, c := range withCompanions(r, base, data, m[0], m[1]) {
 				if c.Drop == "" && r.Check != nil {
 					r.Check(c)
+				}
+				if c.Drop == "" && contextual[r.ID] && apiCtxFn != nil {
+					name := ""
+					if r.Generic && len(c.Groups) > 1 {
+						name = c.Groups[1]
+					}
+					attachAPI(c, apiCtxFn(gs, ge, name))
 				}
 				if c.Drop == "" {
 					if how != "" {

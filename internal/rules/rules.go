@@ -411,8 +411,8 @@ var all = []*Rule{
 		Keywords: []string{"basic "},
 		Re:       re(`(?i)authorization["']?\s*[:=,]\s*["']Basic ([A-Za-z0-9+/]{8,}={0,2})["']`),
 		Group:    1,
-		Base:     55,
-		Check:    checkBasicAuth,
+		Base:     55, Verifiable: true,
+		Check: checkBasicAuth,
 	},
 
 	// --------------------------------------------------------------- generic
@@ -421,8 +421,8 @@ var all = []*Rule{
 		Keywords: []string{"key", "secret", "token", "passw", "pwd", "auth", "credential"},
 		Re:       re(`(?i)["']?([a-z0-9_.-]*(?:api[_-]?key|apikey|secret|token|passw(?:or)?d|pwd|client[_-]?secret|access[_-]?key|private[_-]?key|auth[_-]?key|credential)[a-z0-9_-]*)["']?\s*(?::=|=>|[:=])\s*["'\x60]([^"'\x60\s]{8,200})["'\x60]`),
 		Group:    2,
-		Base:     40,
-		Generic:  true,
-		Check:    checkGeneric,
+		Base:     40, Verifiable: true,
+		Generic: true,
+		Check:   checkGeneric,
 	},
 }
