@@ -24,7 +24,7 @@ import (
 	"github.com/CypherNova1337/SecretSniffer/internal/verify"
 )
 
-const version = "1.1.0"
+const version = "1.2.0"
 
 type multi []string
 

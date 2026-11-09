@@ -4,7 +4,7 @@ Finds secrets in JavaScript, files and git history — then proves which ones ar
 
 ![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 ![go](https://img.shields.io/badge/go-1.22%2B-00ADD8?style=flat-square)
-![release](https://img.shields.io/badge/release-v1.1.0-brightgreen?style=flat-square)
+![release](https://img.shields.io/badge/release-v1.2.0-brightgreen?style=flat-square)
 
 ## What it does
 
@@ -65,6 +65,11 @@ every filter and carries a confidence score with the reasons behind it).
   and still valid.
 - **Digs through git history.** Secrets "deleted" in a later commit are still
   in the repository, and still found.
+- **Tests keys for the site's own APIs.** Most keys in web bundles belong to
+  the target's API, not a known vendor. When a key sits next to an API host
+  (API Gateway, APIM, Cloud Run, `api.*`, or the site itself), the API is asked
+  the same question with no key, a made-up key and the real key. Only a real
+  key that gets a different answer from both is reported as verified.
 - **Report-ready.** Every verified finding comes with a command that
   reproduces the check and the provider's response; `-md` writes it all up as
   a Markdown report.
@@ -283,6 +288,7 @@ Verified with a read-only call:
 | OpenAI, Anthropic, Hugging Face | List models / whoami |
 | Algolia (with app ID) | Reads the key's ACL — search-only keys are dropped |
 | Supabase `service_role` JWT | `GET /rest/v1/` |
+| Keys for the target's own API (`x-api-key` and similar, hardcoded `Basic` auth) next to an API host | Three-way GET comparison on the API root and safe endpoint paths found next to the key |
 | Firebase Realtime Database | Unauthenticated shallow read — reported only if the rules allow public reads |
 | Okta (with org domain), HashiCorp Vault (with address), Atlassian (with site + email), Bitbucket (with username), JFrog (with host), Grafana (with instance), Zendesk (with subdomain + email), Supabase secret keys (with project) | Identity endpoint on the instance found nearby |
 | Sentry | Organisation endpoint (region and org decoded from the token) |
@@ -294,7 +300,7 @@ Verified with a read-only call:
 Detected and scored, but not verified (no safe check exists): private keys
 (RSA, EC, Ed25519, OpenSSH, PGP), PyPI tokens (scope decoded from the token),
 database connection strings, credentials in URLs, hardcoded `Basic` auth
-headers, Square and Shopify shared secrets, Stripe webhook secrets, Grafana
+headers with no API nearby, Square and Shopify shared secrets, Stripe webhook secrets, Grafana
 Cloud tokens (org decoded), other JWTs, and generic `secret = "..."`
 assignments.
 
@@ -311,6 +317,18 @@ reCAPTCHA site keys, Algolia search-only keys and Supabase `anon` keys.
 - **Nothing billable is sent.** Where a check could cost the key owner money
   (Google APIs), a free endpoint is used instead. A Google key that's real and
   unrestricted but has no free API enabled is shown as likely, not verified.
+- **Own-API keys are tested against the target.** Unlike vendor checks, this
+  talks to the program's infrastructure: GET only, at most the API root plus
+  three endpoint paths found next to the key, spaced out, and never a path
+  whose name suggests an action (export, delete, send, create, upload, reset,
+  pay, login and the like). Three requests per path: no key, a made-up key of
+  the same shape, the real key. If the API answers all three the same, the
+  result is inconclusive — never "verified". `-no-verify` turns it off along
+  with every other check. These requests don't go through `-proxy`.
+- **The API host comes from the code.** API gateway and `api.*` URLs near the
+  key are used first; if the bundle only calls relative paths, the site that
+  served it is the API. The host, paths and header are shown on the finding so
+  you can test by hand too.
 - **Access mapping makes a few more calls.** All read-only (listing policies,
   scopes, buckets, orgs), but more than one request per key. `-no-enrich` to
   keep it to the single confirming call.

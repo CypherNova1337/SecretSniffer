@@ -43,6 +43,9 @@ type Target struct {
 	RuleID string
 	Secret string
 	Parts  map[string]string
+	// Hints carries context found next to the credential (API host, paths,
+	// header) for checks that need it.
+	Hints map[string]string
 }
 
 // Result is a verification verdict.
@@ -137,13 +140,15 @@ func (v *Verifier) Verify(ctx context.Context, key string, t Target) Result {
 	hc.rec = &rec
 	res := fn(ctx, &hc, t)
 	// One retry for transient failures before settling on unknown.
-	if res.State == Unknown && ctx.Err() == nil {
+	if res.State == Unknown && transient(res.Note) && ctx.Err() == nil {
 		time.Sleep(1500 * time.Millisecond)
 		rec = rec[:0]
 		res = fn(ctx, &hc, t)
 	}
 	if res.State == Live {
-		res.Evidence = buildEvidence(t, rec)
+		if res.Evidence == nil {
+			res.Evidence = buildEvidence(t, rec)
+		}
 		if v.Enrich {
 			if en, ok := enrichers[t.RuleID]; ok {
 				en(ctx, &hc, t, &res)
@@ -256,4 +261,14 @@ func byStatus(r *Response, ok func(*Response) Result) Result {
 	default:
 		return Result{State: Unknown, Note: "unexpected status " + strconv.Itoa(r.Status)}
 	}
+}
+
+// transient reports whether an inconclusive result is worth retrying.
+func transient(note string) bool {
+	for _, p := range []string{"request failed", "rate limit", "provider error"} {
+		if strings.Contains(note, p) {
+			return true
+		}
+	}
+	return false
 }

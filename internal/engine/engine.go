@@ -138,7 +138,7 @@ func (e *Engine) verifyWorker(ctx context.Context) {
 		e.mu.Lock()
 		c := e.items[k].best
 		e.mu.Unlock()
-		res := e.opt.Verifier.Verify(ctx, k, verify.Target{RuleID: c.RuleID, Secret: c.Secret, Parts: c.Parts})
+		res := e.opt.Verifier.Verify(ctx, k, verify.Target{RuleID: c.RuleID, Secret: c.Secret, Parts: c.Parts, Hints: c.Info})
 		e.mu.Lock()
 		en := e.items[k]
 		en.result = &res

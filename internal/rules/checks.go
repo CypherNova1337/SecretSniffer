@@ -376,6 +376,12 @@ func decodeSegment(s string) ([]byte, error) {
 	return base64.RawURLEncoding.DecodeString(strings.TrimRight(s, "="))
 }
 
+// publicJWTTypes are JWT "typ" values for tokens vendors ship to every
+// browser on purpose.
+var publicJWTTypes = map[string]bool{
+	"Telerik License Evidence": true,
+}
+
 func checkJWT(c *finding.Candidate) {
 	parts := strings.Split(c.Secret, ".")
 	hdrRaw, err1 := decodeSegment(parts[0])
@@ -383,6 +389,10 @@ func checkJWT(c *finding.Candidate) {
 	var hdr, pay map[string]any
 	if err1 != nil || err2 != nil || json.Unmarshal(hdrRaw, &hdr) != nil || json.Unmarshal(payRaw, &pay) != nil {
 		c.Drop = "does not decode as a JWT"
+		return
+	}
+	if typ, _ := hdr["typ"].(string); publicJWTTypes[typ] {
+		c.Drop = "\"" + typ + "\" token - shipped publicly by design"
 		return
 	}
 	if alg, _ := hdr["alg"].(string); alg != "" {
@@ -498,9 +508,11 @@ func checkBasicAuth(c *finding.Candidate) {
 // ---------------------------------------------------------------- generic
 
 var metaSuffix = regexp.MustCompile(`(?i)(url|uri|endpoint|path|file|filename|name|label|field|type|length|len|policy|placeholder|hint|regex|pattern|min|max|count|header|param|id|prefix|format|input|error|message|msg|text|title|mode|expiry|expires|ttl|timeout|enabled|required|visible|reset|confirm|strength|storage|cookie|ref|key_id)$`)
-var publicName = regexp.MustCompile(`(?i)(public|publishable|pub_?key|site_?key|recaptcha|captcha|csrf|xsrf|nonce|tokenizer|token_?type|sentry|dsn|analytics|tracking|measurement|gtm|pixel)`)
+var publicName = regexp.MustCompile(`(?i)(licen[cs]e|public|publishable|pub_?key|site_?key|recaptcha|captcha|csrf|xsrf|nonce|tokenizer|token_?type|sentry|dsn|analytics|tracking|measurement|gtm|pixel)`)
 var strongName = regexp.MustCompile(`(?i)(client_?secret|secret_?key|api_?key|apikey|private_?key|access_?key|auth_?key|signing|master|admin)`)
 var passName = regexp.MustCompile(`(?i)(passw|pwd)`)
+var prodName = regexp.MustCompile(`(?i)(prod|live)`)
+var nonProdName = regexp.MustCompile(`(?i)(test|uat|dev|stag|accp|qa|sandbox|demo|local)`)
 
 func checkGeneric(c *finding.Candidate) {
 	name, val := group(c, 1), c.Secret
@@ -523,8 +535,14 @@ func checkGeneric(c *finding.Candidate) {
 		c.Drop = "value is a subresource-integrity hash"
 	case strings.Trim(val, "0123456789") == "":
 		c.Drop = "value is all digits (ID, timestamp or length)"
-	case wordsOnlyRe.MatchString(val) || camelIdentRe.MatchString(val):
+	case !PrintableASCII(val):
+		c.Drop = "value contains non-ASCII text - a display string, not a generated secret"
+	case wordsOnlyRe.MatchString(val) || camelIdentRe.MatchString(val) || wordPunctRe.MatchString(val):
 		c.Drop = "value is plain words or an identifier, not a secret"
+	case IdentifierChain(val):
+		c.Drop = "value is a CSS-module/BEM class name or identifier chain"
+	case LooksLikeCode(val):
+		c.Drop = "value is a fragment of code, not a literal"
 	case strings.EqualFold(val, name):
 		c.Drop = "value equals its own variable name"
 	}
@@ -532,6 +550,12 @@ func checkGeneric(c *finding.Candidate) {
 		return
 	}
 	e := Entropy(val)
+	switch {
+	case prodName.MatchString(name):
+		because(c, 5, "named as a production key ("+name+")")
+	case nonProdName.MatchString(name):
+		because(c, -5, "named as a non-production key ("+name+")")
+	}
 	if isPass {
 		if charClasses(val) < 2 {
 			c.Drop = "password uses a single character class - likely a label"
@@ -545,6 +569,10 @@ func checkGeneric(c *finding.Candidate) {
 	}
 	if len(val) < 16 {
 		c.Drop = "too short for a generated key"
+		return
+	}
+	if KeyCharRatio(val) < 0.8 {
+		c.Drop = "too many characters that generated keys don't use"
 		return
 	}
 	if e < 3.5 {
