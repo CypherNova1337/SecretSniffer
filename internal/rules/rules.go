@@ -106,7 +106,7 @@ var all = []*Rule{
 		ID: "gcp-service-account", Name: "Google Cloud service account key", Severity: Critical,
 		Keywords: []string{"service_account"},
 		Re:       re(`"type"\s*:\s*"service_account"`),
-		Base:     40,
+		Base:     40, Verifiable: true,
 		Companions: []Companion{{
 			Name:   "private_key",
 			Re:     re(`"private_key"\s*:\s*"(-----BEGIN PRIVATE KEY-----[^"]+-----END PRIVATE KEY-----(?:\\n)?)"`),
